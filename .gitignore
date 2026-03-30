@@ -1,0 +1,26 @@
+# Dados (não versionar arquivos sensíveis)
+data/raw/*.csv
+data/processed/
+data/models/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# MLflow
+mlruns/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
