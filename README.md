@@ -302,8 +302,3 @@ Para visualizar os resultados:
 streamlit run app/main.py
 ```
 
----
-
-## Autor
-
-**Carlos Magno Bernardino Silva**
