@@ -119,9 +119,8 @@ fraud-detection/
 │   ├── modelagem_baseline.ipynb           ← modelos baseline
 │   └── modelagem_xgboost_optuna.ipynb     ← otimização com Optuna
 │
-├── app/                                   ← Streamlit (em desenvolvimento)
+├── app/                                   ← Streamlit BI
 ├── reports/                               ← catálogo de features, relatórios
-├── tests/                                 ← testes unitários (pendente)
 └── requirements.txt
 ```
 
@@ -211,12 +210,48 @@ Para W ∈ {1H, 2H, 4H, 8H, 12H, 24H, 48H, 72H, 7D, 14D, 21D, 30D, 45D}:
 
 ---
 
+## Achados da EDA
+
+A análise exploratória revelou padrões claros que guiaram a construção das features:
+
+- **Concentração de risco por terminal:** o terminal 565 apresentou taxa de fraude **9,68× acima da média** — evidenciando que o histórico do terminal é um sinal forte
+- **Exposição ampla de clientes:** **75,15%** dos clientes foram envolvidos em ao menos 1 fraude no período, indicando que o comportamento individual também importa
+- **Período noturno como fator de risco:** transações entre 00h e 04h concentraram a maior taxa de fraude (**2,43%**), quase o dobro da média geral
+- **Valor da transação é discriminativo:** o teste Mann-Whitney confirmou diferença significativa nos montantes entre fraudes e transações legítimas (p = 0,003)
+- **Total fraudado no período:** **R$ 376.210,13** — representando impacto financeiro real e mensurável
+
+---
+
+## O que o Modelo Resolveu
+
+Com base nos padrões identificados na EDA, o pipeline produziu um modelo XGBoost otimizado com Optuna capaz de:
+
+- **Detectar fraudes com alta sensibilidade** — recall superior a 80% no conjunto de validação, recuperando a maior parte do valor em risco
+- **Controlar falsos positivos** — threshold otimizado pelo F2-score para equilibrar a detecção máxima de fraudes com o mínimo de transações legítimas bloqueadas
+- **Quantificar o impacto financeiro** — o app Streamlit calcula em tempo real o benefício líquido do modelo (valor salvo em fraudes bloqueadas menos o custo operacional de cada falso positivo), permitindo ajuste interativo do threshold conforme as premissas de negócio
+- **Rastrear experimentos de forma reproduzível** — todos os modelos treinados são registrados no MLflow com parâmetros, métricas, threshold e lista de features, garantindo auditabilidade completa
+
+---
+
+## Principais Decisões de Design
+
+| Decisão | Motivo |
+|---|---|
+| Hooks explícitos (não decorators) | Mais legível e fácil de debugar |
+| LEFT JOIN no joiner | Nunca perde transações silenciosamente |
+| Delay de 7 dias no risco do terminal | Evita data leakage |
+| `closed='left'` nas janelas do cliente | Garante ausência de leakage nas rolling windows |
+| `pre_logging_hook` com threshold mínimo | Bloqueia registro se AUC-ROC < 0.80 ou AP < 0.40 |
+| Modelagem manual em notebook | Fase que exige julgamento humano; pipeline apenas prepara os dados |
+
+---
+
 ## Setup
 
 ```bash
 # Clone o repositório
-git clone https://github.com/carlosmagnobernardinosilva/fraud-detection.git
-cd fraud-detection
+git clone https://github.com/carlosmagnobernardinosilva/fraude-detection.git
+cd fraude-detection
 
 # Instale as dependências
 pip install -r requirements.txt
@@ -225,7 +260,7 @@ pip install -r requirements.txt
 export GROQ_API_KEY=sua_chave_aqui
 ```
 
-Coloque os CSVs originais em `data/raw/` e execute:
+Coloque os CSVs originais em `data/raw/` e execute o pipeline:
 
 ```python
 import pandas as pd
@@ -261,42 +296,11 @@ if not ctx.has_errors():
     post_logging_hook(ctx, start)
 ```
 
----
+Para visualizar os resultados:
 
-## Principais Decisões de Design
-
-| Decisão | Motivo |
-|---|---|
-| Hooks explícitos (não decorators) | Mais legível e fácil de debugar |
-| LEFT JOIN no joiner | Nunca perde transações silenciosamente |
-| Delay de 7 dias no risco do terminal | Evita data leakage |
-| `closed='left'` nas janelas do cliente | Garante sem leakage nas rolling windows |
-| `pre_logging_hook` com threshold mínimo | Bloqueia registro se AUC-ROC < 0.80 ou AP < 0.40 |
-| Modelagem manual em notebook | Fase que exige julgamento humano; pipeline apenas prepara os dados |
-
----
-
-## Achados da EDA
-
-- Terminal 565: taxa de fraude **9,68× acima da média**
-- **75,15%** dos clientes envolvidos em ao menos 1 fraude no período
-- Total fraudado: **R$ 376.210,13**
-- Período noturno: maior taxa de fraude (**2,43%**)
-- `TX_AMOUNT` difere significativamente entre grupos (Mann-Whitney p=0,003)
-
----
-
-## Status do Projeto
-
-| Fase | Status |
-|---|---|
-| EDA | Concluído |
-| Data Preparation | Concluído |
-| Feature Engineering | Concluído |
-| Modelagem (XGBoost + Optuna) | Concluído |
-| Experiment Logging (MLflow) | Concluído |
-| App Streamlit | Em desenvolvimento |
-| Testes unitários | Pendente |
+```bash
+streamlit run app/main.py
+```
 
 ---
 
