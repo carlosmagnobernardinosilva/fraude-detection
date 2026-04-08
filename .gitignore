@@ -1,7 +1,9 @@
 # Dados (não versionar arquivos sensíveis)
 data/raw/*.csv
-data/silver/
-data/gold/
+
+# Arquivos Gold grandes demais para o GitHub (80MB e 64MB)
+data/gold/train_gold.parquet
+data/gold/test_gold.parquet
 
 # Modelos e dados processados (gerados pelo pipeline)
 data/processed/*

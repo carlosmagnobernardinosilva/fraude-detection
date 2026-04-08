@@ -95,11 +95,9 @@ def load_val_data():
     _, X_val, _, y_val = train_test_split(
         X, y, test_size=0.25, random_state=RANDOM_STATE, stratify=y
     )
-    gold   = pd.read_parquet(ROOT / "data" / "gold" / "train_gold.parquet",
-                              columns=["TX_AMOUNT"])
     silver = pd.read_parquet(ROOT / "data" / "silver" / "train_silver.parquet",
-                              columns=["TX_DATETIME"])
-    amount = gold.loc[X_val.index, "TX_AMOUNT"].values
+                              columns=["TX_DATETIME", "TX_AMOUNT"])
+    amount = silver.loc[X_val.index, "TX_AMOUNT"].values
     safra  = silver.loc[X_val.index, "TX_DATETIME"].dt.to_period("M").astype(str).values
     return X_val, y_val, amount, safra
 
