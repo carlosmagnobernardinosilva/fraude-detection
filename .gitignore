@@ -10,6 +10,7 @@ data/processed/*
 data/models/*
 !data/processed/.gitkeep
 !data/models/.gitkeep
+!data/models/xgboost_optuna*.pkl
 
 # Python
 __pycache__/
