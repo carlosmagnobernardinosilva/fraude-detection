@@ -1,55 +1,305 @@
-# 🛡️ Fraud Detection — Detecção de Fraudes em Transações
+# Fraud Detection — End-to-End ML Pipeline
 
-Sistema end-to-end de detecção de fraudes com pipeline modular (Agentes, Skills, Hooks) e app interativo em Streamlit.
+Sistema end-to-end de detecção de fraudes em cartões de crédito em terminais físicos (POS), desenvolvido como projeto de portfólio.
+
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
+![XGBoost](https://img.shields.io/badge/XGBoost-lightgreen?logo=xgboost)
+![MLflow](https://img.shields.io/badge/MLflow-tracking-orange?logo=mlflow)
+![Streamlit](https://img.shields.io/badge/Streamlit-app-red?logo=streamlit)
 
 ---
 
-## 🗂️ Estrutura do Projeto
+## Visão Geral
+
+Pipeline semi-automatizado que cobre desde a ingestão dos dados brutos até o registro de experimentos no MLflow. A modelagem é realizada manualmente em notebook Jupyter, usando os dados preparados pelo pipeline.
+
+**Stack:** Python · XGBoost · LightGBM · Scikit-learn · MLflow · SHAP · Streamlit · Pandas · Groq API
+
+**Dataset:**
+| Arquivo | Descrição | Volume |
+|---|---|---|
+| `train.csv` | Transações de treino (ago–dez/2021) | 291.231 linhas |
+| `test.csv` | Transações de teste (jan/2022+) | 226.731 linhas |
+| `customer.csv` | Perfil de clientes (coordenadas, comportamento) | 998 clientes |
+| `terminal.csv` | Localização dos terminais POS | 1.994 terminais |
+
+Taxa de fraude global: **~2,26%** — classes fortemente desbalanceadas.
+
+---
+
+## Arquitetura
+
+O pipeline segue o padrão **Agent → Skill → Hook** com um objeto `PipelineContext` compartilhado:
+
+- **Agent** — orquestra uma fase; nunca contém lógica de negócio diretamente
+- **Skill** — função pura e stateless; única responsabilidade (ex: `cast_types`, `join_datasets`)
+- **Hook** — validação e auditoria nas fronteiras do pipeline; nunca transforma dados
+- **PipelineContext** — dataclass que carrega o estado entre todos os agentes
+
+```
+PipelineContext (dados brutos carregados)
+        │
+        ▼
+[pre_data_hook]              ← valida schema, taxa de fraude, volume
+        │
+        ▼
+DataPreparationAgent
+    ├── skill: type_casting  ← corrige tipos (TX_DATETIME, TX_FRAUD, etc.)
+    ├── skill: joiner        ← LEFT JOIN train + customer + terminal
+    └── skill: filter        ← remove duplicatas, TX_AMOUNT <= 0, nulos críticos
+        │
+        ▼
+[post_data_hook]             ← loga tempo, % removido, nulos restantes
+        │
+        ▼
+[pre_feature_hook]           ← valida tipo TX_DATETIME
+        │
+        ▼
+FeatureEngineeringAgent
+    ├── skill: feature_creator   ← features de negócio (baseadas na EDA)
+    ├── skill: feature_explorer  ← LLM (Groq) sugere e testa novas hipóteses
+    └── skill: feature_selector  ← IV + RandomForest para seleção
+        │
+        ▼
+[post_feature_hook]          ← detecta leakage, valida X/y, loga taxa fraude
+        │
+        ▼
+        [Humano modela aqui — Jupyter Notebook]
+        │
+        ▼
+[pre_logging_hook]           ← bloqueia se métricas abaixo do mínimo
+        │
+        ▼
+ExperimentLoggerAgent
+    └── skill: mlflow_logger     ← log_params, log_metrics, log_model, log_artifacts
+        │
+        ▼
+[post_logging_hook]          ← confirma run_id, loga resumo
+```
+
+---
+
+## Estrutura de Arquivos
 
 ```
 fraud-detection/
 │
-├── 📂 app/                    # Aplicação Streamlit
-│   ├── components/            # Componentes reutilizáveis de UI
-│   └── pages/                 # Páginas do app (predição, dashboard, modelo)
+├── src/
+│   ├── context/
+│   │   └── pipeline_context.py            ← dataclass de estado do pipeline
+│   ├── orchestrator/
+│   │   └── preparation_orchestrator.py    ← orquestra agentes + hooks
+│   ├── agents/
+│   │   ├── DataPreparationAgent.py        ← type_casting + joiner + filter
+│   │   ├── FeatureEngineeringAgent.py     ← creator + explorer + selector
+│   │   └── ExperimentLoggerAgent.py       ← mlflow_logger
+│   ├── skills/
+│   │   ├── type_casting.py
+│   │   ├── joiner.py
+│   │   ├── filter.py
+│   │   ├── feature_creator.py
+│   │   ├── feature_explorer.py            ← integração com Groq API (LLM)
+│   │   ├── feature_selector.py
+│   │   ├── mlflow_logger.py
+│   │   └── persistence.py                 ← save/load Silver e Gold
+│   └── hooks/
+│       ├── data_hooks.py
+│       ├── feature_hooks.py
+│       └── logging_hooks.py
 │
-├── 📂 data/
-│   ├── raw/                   # Dados brutos (não versionados)
-│   ├── processed/             # Dados após feature engineering
-│   └── models/                # Modelos treinados serializados
+├── data/
+│   ├── raw/                               ← CSVs originais (não versionados)
+│   ├── silver/                            ← Parquet limpo e tipado (não versionado)
+│   ├── gold/                              ← Parquet com features (não versionado)
+│   └── models/                            ← modelos serializados (não versionados)
 │
-├── 📂 notebooks/              # Análise Exploratória (EDA)
+├── notebooks/
+│   ├── entendimento_dados.ipynb           ← EDA
+│   ├── analise_negocio.ipynb              ← análise de negócio
+│   ├── modelagem_baseline.ipynb           ← modelos baseline
+│   └── modelagem_xgboost_optuna.ipynb     ← otimização com Optuna
 │
-├── 📂 src/
-│   ├── agents/                # Agentes: DataAgent, FeatureAgent, PredictionAgent
-│   ├── skills/                # Skills: preprocessing, feature_engineering, evaluation
-│   ├── hooks/                 # Hooks: data_hooks, model_hooks, prediction_hooks
-│   ├── models/                # Wrappers dos modelos (XGBoost, LightGBM)
-│   ├── pipeline/              # Orquestração do pipeline de treino
-│   └── utils/                 # Logger, config, helpers
-│
-├── 📂 reports/
-│   └── figures/               # Gráficos e visualizações exportadas
-│
-├── 📂 tests/                  # Testes unitários
-│
-├── 📂 .github/workflows/      # CI/CD com GitHub Actions
-│
-├── config.yaml                # Configurações centralizadas
-├── requirements.txt
-├── .gitignore
-└── README.md
+├── app/                                   ← Streamlit (em desenvolvimento)
+├── reports/                               ← catálogo de features, relatórios
+├── tests/                                 ← testes unitários (pendente)
+└── requirements.txt
 ```
 
 ---
 
-## 🚀 Stack
+## Medallion Architecture
 
-`Python` · `XGBoost` · `LightGBM` · `MLflow` · `SHAP` · `Streamlit` · `Scikit-learn`
+Os dados passam por três camadas, todas em Parquet:
+
+```
+data/raw/    → CSVs originais, nunca modificados
+data/silver/ → limpos, tipados e com JOIN (DataPreparationAgent)
+data/gold/   → Silver + features engineered + selecionadas (FeatureEngineeringAgent)
+```
+
+Agentes pulam o reprocessamento se a camada já existir. Para forçar: `DataPreparationAgent(force_rerun=True)`.
 
 ---
 
-## 👤 Autor
+## Features Criadas
 
-**Carlos Magno Bernardino Silva** — Data Scientist | Credit Risk & Fraud Detection  
-🔗 [LinkedIn](https://linkedin.com/in/carlosmagno) · 🐙 [GitHub](https://github.com/carlosmagnobernardinosilva)
+<details>
+<summary>Temporais</summary>
+
+| Feature | Descrição |
+|---|---|
+| TX_HOUR | Hora da transação |
+| TX_DAY_OF_WEEK | Dia da semana |
+| TX_DAY_OF_MONTH | Dia do mês |
+| TX_MONTH / TX_YEAR | Mês e ano |
+| TX_DURING_WEEKEND | Flag fim de semana |
+| TX_NIGHT_FLAG | Flag período noturno |
+| PERIODO_DIA / PERIODO_DIA_NUM | Manhã / Tarde / Noite |
+
+</details>
+
+<details>
+<summary>Valor da transação</summary>
+
+| Feature | Descrição |
+|---|---|
+| TX_AMOUNT_LOG | log1p do valor |
+| TX_AMOUNT_ROUNDED | Flag valor sem centavos |
+| TX_ABOVE_MEAN_FLAG | Acima da média do cliente |
+| TX_AMOUNT_ZSCORE | Desvio vs. histórico do cliente |
+
+</details>
+
+<details>
+<summary>Risco do terminal (delay 7 dias para evitar leakage)</summary>
+
+| Feature | Descrição |
+|---|---|
+| TERM_NB_TX_1D/7D/30D | Volume de transações no terminal |
+| TERM_RISK_1D/7D/30D | Taxa de fraude do terminal por janela |
+
+</details>
+
+<details>
+<summary>Janelas temporais do cliente (sem leakage — closed='left')</summary>
+
+Para W ∈ {1H, 2H, 4H, 8H, 12H, 24H, 48H, 72H, 7D, 14D, 21D, 30D, 45D}:
+
+`TX_CUST_NB_TX_W` · `TX_CUST_SUM_AMT_W` · `TX_CUST_MEAN_AMT_W` · `TX_CUST_MEDIAN_AMT_W` · `TX_CUST_MIN_AMT_W` · `TX_CUST_MAX_AMT_W`
+
+</details>
+
+<details>
+<summary>Comportamentais e geográficas</summary>
+
+| Feature | Descrição |
+|---|---|
+| TX_TIME_SINCE_LAST_TX | Minutos desde a última transação do cliente |
+| TX_FLAG_SAME_TERMINAL | Flag mesmo terminal da transação anterior |
+| TX_CUST_NIGHT_RATIO | Proporção de transações noturnas (expanding) |
+| TX_CUST_DISTINCT_TERMINALS | Terminais distintos usados (expanding) |
+| DIST_CUSTOMER_TERMINAL | Distância euclidiana cliente ↔ terminal |
+
+</details>
+
+<details>
+<summary>Razões e velocidade</summary>
+
+`RATIO_AMT_VS_CUST_24H` · `RATIO_AMT_VS_CUST_7D` · `RATIO_TERM_RISK_1D_7D` · `RATIO_AMT_VS_GLOBAL_MEAN` · `RATIO_NB_TX_1H_24H` · `RATIO_MAX_VS_MEAN_24H` · `TX_AMOUNT_X_DIST` · `TX_VELOCITY_24H`
+
+</details>
+
+---
+
+## Setup
+
+```bash
+# Clone o repositório
+git clone https://github.com/carlosmagnobernardinosilva/fraud-detection.git
+cd fraud-detection
+
+# Instale as dependências
+pip install -r requirements.txt
+
+# Configure a variável de ambiente para o feature_explorer (opcional)
+export GROQ_API_KEY=sua_chave_aqui
+```
+
+Coloque os CSVs originais em `data/raw/` e execute:
+
+```python
+import pandas as pd
+from src.context.pipeline_context import PipelineContext
+from src.orchestrator.preparation_orchestrator import PreparationOrchestrator
+
+ctx = PipelineContext(
+    df_train    = pd.read_csv("data/raw/train.csv"),
+    df_test     = pd.read_csv("data/raw/test.csv"),
+    df_customer = pd.read_csv("data/raw/customer.csv"),
+    df_terminal = pd.read_csv("data/raw/terminal.csv"),
+)
+ctx = PreparationOrchestrator().run(ctx)
+# ctx.X_train e ctx.y_train prontos para modelagem
+```
+
+Após treinar o modelo, registre o experimento:
+
+```python
+from src.agents.ExperimentLoggerAgent import ExperimentLoggerAgent
+from src.hooks.logging_hooks import pre_logging_hook, post_logging_hook
+import time
+
+ctx.model      = model
+ctx.model_name = "xgboost_v1"
+ctx.threshold  = 0.48
+ctx.metrics    = {"auc_roc": 0.97, "average_precision": 0.82}
+
+pre_logging_hook(ctx)
+if not ctx.has_errors():
+    start = time.time()
+    ctx = ExperimentLoggerAgent().run(ctx)
+    post_logging_hook(ctx, start)
+```
+
+---
+
+## Principais Decisões de Design
+
+| Decisão | Motivo |
+|---|---|
+| Hooks explícitos (não decorators) | Mais legível e fácil de debugar |
+| LEFT JOIN no joiner | Nunca perde transações silenciosamente |
+| Delay de 7 dias no risco do terminal | Evita data leakage |
+| `closed='left'` nas janelas do cliente | Garante sem leakage nas rolling windows |
+| `pre_logging_hook` com threshold mínimo | Bloqueia registro se AUC-ROC < 0.80 ou AP < 0.40 |
+| Modelagem manual em notebook | Fase que exige julgamento humano; pipeline apenas prepara os dados |
+
+---
+
+## Achados da EDA
+
+- Terminal 565: taxa de fraude **9,68× acima da média**
+- **75,15%** dos clientes envolvidos em ao menos 1 fraude no período
+- Total fraudado: **R$ 376.210,13**
+- Período noturno: maior taxa de fraude (**2,43%**)
+- `TX_AMOUNT` difere significativamente entre grupos (Mann-Whitney p=0,003)
+
+---
+
+## Status do Projeto
+
+| Fase | Status |
+|---|---|
+| EDA | Concluído |
+| Data Preparation | Concluído |
+| Feature Engineering | Concluído |
+| Modelagem (XGBoost + Optuna) | Concluído |
+| Experiment Logging (MLflow) | Concluído |
+| App Streamlit | Em desenvolvimento |
+| Testes unitários | Pendente |
+
+---
+
+## Autor
+
+**Carlos Magno Bernardino Silva**
