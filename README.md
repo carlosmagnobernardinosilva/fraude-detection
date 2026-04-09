@@ -9,6 +9,22 @@ Sistema end-to-end de detecção de fraudes em cartões de crédito em terminais
 
 ---
 
+## Contexto do Problema
+
+Fraudes em cartões de crédito em terminais físicos (POS) geram bilhões de dólares em prejuízo por ano globalmente. O desafio central não é apenas detectar fraudes — é fazê-lo **em tempo real**, com alta sensibilidade, sem bloquear transações legítimas em escala.
+
+Este projeto simula o fluxo de trabalho de um time de Data Science em uma instituição financeira fictícia. Os dados representam transações realizadas entre agosto/2021 e janeiro/2022 em uma rede de terminais POS, com perfis de clientes e localização geográfica dos terminais.
+
+**O problema tem três camadas de dificuldade:**
+
+1. **Desbalanceamento extremo:** apenas ~2,26% das transações são fraudes. Modelos treinados ingenuamente ignoram a classe minoritária.
+2. **Data leakage sutil:** features como risco do terminal precisam ser calculadas com delay (7 dias) para não vazar informação do futuro para o treino.
+3. **Custo assimétrico:** um falso negativo (fraude não detectada) e um falso positivo (transação legítima bloqueada) têm custos muito diferentes — o threshold ideal depende das premissas de negócio, não de uma métrica única.
+
+**Objetivo:** construir um pipeline reproduzível, com feature engineering robusto e sem leakage, que entregue um modelo capaz de maximizar a detecção de fraudes dentro de uma tolerância controlada de falsos positivos — e que permita ao time ajustar esse equilíbrio conforme as premissas mudem.
+
+---
+
 ## Visão Geral
 
 Pipeline semi-automatizado que cobre desde a ingestão dos dados brutos até o registro de experimentos no MLflow. A modelagem é realizada manualmente em notebook Jupyter, usando os dados preparados pelo pipeline.
